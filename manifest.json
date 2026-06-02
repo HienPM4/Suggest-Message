@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Phrase Book Assistant",
+  "version": "1.0.0",
+  "description": "Save and sync customer reply phrases (EN/JA/VI).",
+  "action": {
+    "default_title": "Open Phrase Book"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*.supabase.co/*"
+  ]
+}
