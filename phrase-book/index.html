@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Phrase Book — Câu trả lời khách hàng</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h1>📒 Phrase Book</h1>
+        <button class="btn-icon" id="closeSidebarBtn" title="Đóng" aria-label="Đóng sidebar">✕</button>
+      </div>
+
+      <section class="side-section">
+        <h3>Ngôn ngữ</h3>
+        <div class="lang-filters" id="langFilters">
+          <button class="chip active" data-lang="ALL">Tất cả</button>
+          <button class="chip" data-lang="EN">EN</button>
+          <button class="chip" data-lang="JA">JA</button>
+          <button class="chip" data-lang="VI">VI</button>
+        </div>
+      </section>
+
+      <section class="side-section">
+        <h3>Bộ lọc nhanh</h3>
+        <ul class="cat-list">
+          <li><button class="cat-item" data-special="all">📚 Tất cả câu <span class="count" id="countAll">0</span></button></li>
+          <li><button class="cat-item" data-special="pinned">📌 Đã ghim <span class="count" id="countPinned">0</span></button></li>
+        </ul>
+      </section>
+
+      <section class="side-section">
+        <h3>Danh mục</h3>
+        <ul class="cat-list" id="categoryList"></ul>
+      </section>
+
+      <div class="sidebar-footer">
+        <button class="btn-ghost" id="exportBtn" title="Xuất JSON">⬇ Export</button>
+        <button class="btn-ghost" id="importBtn" title="Nhập JSON">⬆ Import</button>
+        <input type="file" id="importFile" accept="application/json" hidden />
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <header class="topbar">
+        <button class="btn-icon menu-btn" id="openSidebarBtn" aria-label="Mở sidebar">☰</button>
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input
+            type="search"
+            id="searchInput"
+            placeholder="Tìm câu nói, ghi chú, tag... (gõ / để focus)"
+            autocomplete="off"
+          />
+          <kbd class="kbd-hint">/</kbd>
+        </div>
+        <button class="btn-primary" id="addBtn" title="Thêm câu mới (n)">＋ Thêm câu</button>
+      </header>
+
+      <div class="result-meta" id="resultMeta"></div>
+
+      <section class="grid" id="phraseGrid"></section>
+
+      <div class="empty" id="emptyState" hidden>
+        <div class="empty-icon">🪹</div>
+        <h2>Chưa có câu nào</h2>
+        <p>Nhấn <b>＋ Thêm câu</b> để bắt đầu lưu các câu nói thường dùng.</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-header">
+        <h2 id="modalTitle">Thêm câu mới</h2>
+        <button class="btn-icon" id="closeModalBtn" aria-label="Đóng">✕</button>
+      </div>
+      <form id="phraseForm" class="modal-body">
+        <input type="hidden" id="fId" />
+
+        <label>
+          Nội dung câu <span class="req">*</span>
+          <textarea id="fText" required rows="3" placeholder="Ví dụ: Thank you for your patience."></textarea>
+        </label>
+
+        <div class="row-2">
+          <label>
+            Ngôn ngữ
+            <select id="fLang">
+              <option value="EN">EN — English</option>
+              <option value="JA">JA — 日本語</option>
+              <option value="VI">VI — Tiếng Việt</option>
+            </select>
+          </label>
+
+          <label>
+            Danh mục
+            <input id="fCategory" list="categoryOptions" placeholder="greeting, thanks, apology..." />
+            <datalist id="categoryOptions"></datalist>
+          </label>
+        </div>
+
+        <label>
+          Tags <span class="hint">(phân cách bằng dấu phẩy)</span>
+          <input id="fTags" placeholder="email, formal, follow-up" />
+        </label>
+
+        <label>
+          Ghi chú tình huống sử dụng
+          <textarea id="fNote" rows="2" placeholder="Khi khách hàng phàn nàn về thời gian phản hồi..."></textarea>
+        </label>
+
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="cancelBtn">Hủy</button>
+          <button type="submit" class="btn-primary">Lưu</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
