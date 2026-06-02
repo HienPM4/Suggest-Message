@@ -1,5 +1,11 @@
-// ===== Phrase Book — vanilla JS, localStorage =====
-const STORAGE_KEY = "phrasebook.v1";
+// ===== Phrase Book — vanilla JS, localStorage + Supabase sync =====
+const APP_NAMESPACE = (() => {
+  const cleanPath = window.location.pathname.replace(/^\/|\/$/g, "");
+  return (cleanPath.split("/")[0] || "local").toLowerCase();
+})();
+const STORAGE_KEY = `phrasebook.v2.${APP_NAMESPACE}`;
+const CLOUD_CONFIG_KEY = `phrasebook.cloud.v1.${APP_NAMESPACE}`;
+const CLOUD_TABLE = "phrasebook_store";
 
 // ---------- Seed data ----------
 const SEED = [
@@ -41,13 +47,55 @@ let state = {
   filter: { lang: "ALL", category: null, pinned: false, query: "" },
 };
 
+let cloudConfig = {
+  url: "",
+  anonKey: "",
+  workspaceId: "default",
+};
+
+let cloudSaveTimer;
+
 // ---------- Storage ----------
-function loadState() {
+function loadCloudConfig() {
+  try {
+    const raw = localStorage.getItem(CLOUD_CONFIG_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    cloudConfig.url = (data.url || "").trim();
+    cloudConfig.anonKey = (data.anonKey || "").trim();
+    cloudConfig.workspaceId = (data.workspaceId || "default").trim() || "default";
+  } catch (e) {
+    console.error("Load cloud config failed:", e);
+  }
+}
+
+function saveCloudConfig() {
+  localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(cloudConfig));
+}
+
+function isCloudReady() {
+  return !!(cloudConfig.url && cloudConfig.anonKey && cloudConfig.workspaceId);
+}
+
+function cloudEndpoint(path) {
+  return `${cloudConfig.url.replace(/\/$/, "")}${path}`;
+}
+
+function cloudHeaders(extra = {}) {
+  return {
+    apikey: cloudConfig.anonKey,
+    Authorization: `Bearer ${cloudConfig.anonKey}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+}
+
+function loadLocalState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       state.phrases = SEED.map(makePhrase);
-      saveState();
+      saveLocalState();
       return;
     }
     const data = JSON.parse(raw);
@@ -57,11 +105,97 @@ function loadState() {
     state.phrases = SEED.map(makePhrase);
   }
 }
-function saveState() {
+
+function saveLocalState() {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({ version: 1, phrases: state.phrases })
   );
+}
+
+async function pullCloudPhrases() {
+  const id = encodeURIComponent(cloudConfig.workspaceId);
+  const url = cloudEndpoint(`/rest/v1/${CLOUD_TABLE}?id=eq.${id}&select=payload&limit=1`);
+  const res = await fetch(url, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(`Cloud pull failed (${res.status})`);
+  const rows = await res.json();
+  const payload = rows?.[0]?.payload;
+  return Array.isArray(payload?.phrases) ? payload.phrases : null;
+}
+
+async function pushCloudPhrases(phrases) {
+  const url = cloudEndpoint(`/rest/v1/${CLOUD_TABLE}?on_conflict=id`);
+  const body = [{
+    id: cloudConfig.workspaceId,
+    payload: { version: 1, phrases },
+  }];
+  const res = await fetch(url, {
+    method: "POST",
+    headers: cloudHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Cloud push failed (${res.status})`);
+}
+
+function mergePhrases(localList, remoteList) {
+  const map = new Map();
+  for (const p of localList || []) {
+    if (!p?.id) continue;
+    map.set(p.id, p);
+  }
+  for (const p of remoteList || []) {
+    if (!p?.id) continue;
+    const old = map.get(p.id);
+    if (!old) {
+      map.set(p.id, p);
+      continue;
+    }
+    const oldTs = Number(old.updatedAt || old.createdAt || 0);
+    const newTs = Number(p.updatedAt || p.createdAt || 0);
+    if (newTs >= oldTs) map.set(p.id, p);
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+    return Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
+  });
+}
+
+async function loadState() {
+  loadCloudConfig();
+  loadLocalState();
+  if (!isCloudReady()) return;
+  try {
+    const remote = await pullCloudPhrases();
+    if (!remote) {
+      await pushCloudPhrases(state.phrases);
+      return;
+    }
+    state.phrases = mergePhrases(state.phrases, remote);
+    saveLocalState();
+    await pushCloudPhrases(state.phrases);
+  } catch (e) {
+    console.error(e);
+    toast("Cloud chưa sẵn sàng, đang dùng dữ liệu local");
+  }
+}
+
+function scheduleCloudSave() {
+  if (!isCloudReady()) return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(async () => {
+    try {
+      await pushCloudPhrases(state.phrases);
+      renderCloudStatus();
+    } catch (e) {
+      console.error(e);
+      renderCloudStatus("Loi sync", true);
+    }
+  }, 500);
+}
+
+function saveState() {
+  saveLocalState();
+  scheduleCloudSave();
 }
 
 // ---------- Helpers ----------
@@ -119,6 +253,7 @@ const modalBackdrop = $("modalBackdrop");
 const phraseForm = $("phraseForm");
 const modalTitle = $("modalTitle");
 const sidebar = $("sidebar");
+const cloudStatus = $("cloudStatus");
 
 // ---------- Render ----------
 function render() {
@@ -126,6 +261,18 @@ function render() {
   renderCounts();
   renderGrid();
   syncActiveFilters();
+  renderCloudStatus();
+}
+
+function renderCloudStatus(note = "", isError = false) {
+  if (!cloudStatus) return;
+  if (!isCloudReady()) {
+    cloudStatus.textContent = "Cloud: chua cau hinh";
+    cloudStatus.style.color = "var(--text-muted)";
+    return;
+  }
+  cloudStatus.textContent = note ? `Cloud: ${note}` : `Cloud: ${cloudConfig.workspaceId}`;
+  cloudStatus.style.color = isError ? "var(--danger)" : "var(--text-muted)";
 }
 
 function renderSidebarCategories() {
@@ -422,6 +569,51 @@ $("importFile").addEventListener("change", async (e) => {
   }
 });
 
+$("cloudSetupBtn").addEventListener("click", () => {
+  const url = prompt("Supabase URL (vd: https://xxxx.supabase.co)", cloudConfig.url || "");
+  if (url === null) return;
+  const anonKey = prompt("Supabase Anon Key", cloudConfig.anonKey || "");
+  if (anonKey === null) return;
+  const workspaceId = prompt("Workspace ID de dong bo nhieu may", cloudConfig.workspaceId || "default");
+  if (workspaceId === null) return;
+
+  cloudConfig.url = url.trim();
+  cloudConfig.anonKey = anonKey.trim();
+  cloudConfig.workspaceId = workspaceId.trim() || "default";
+  saveCloudConfig();
+  renderCloudStatus("da cau hinh");
+  toast("Da luu cau hinh cloud");
+});
+
+$("cloudSyncBtn").addEventListener("click", async () => {
+  if (!isCloudReady()) {
+    toast("Ban can Setup cloud truoc");
+    return;
+  }
+  try {
+    renderCloudStatus("dang sync...");
+    const remote = await pullCloudPhrases();
+    if (!remote) {
+      await pushCloudPhrases(state.phrases);
+      renderCloudStatus("da sync");
+      toast("Da dong bo cloud");
+      return;
+    }
+    state.phrases = mergePhrases(state.phrases, remote);
+    saveLocalState();
+    await pushCloudPhrases(state.phrases);
+    render();
+    renderCloudStatus("da sync");
+    toast("Da dong bo cloud");
+  } catch (err) {
+    console.error(err);
+    renderCloudStatus("loi sync", true);
+    alert("Sync cloud that bai. Kiem tra URL/Key hoac bang Supabase.");
+  }
+});
+
 // ---------- Init ----------
-loadState();
-render();
+(async function init() {
+  await loadState();
+  render();
+})();

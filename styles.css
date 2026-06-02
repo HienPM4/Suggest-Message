@@ -121,9 +121,18 @@ input, textarea, select { font-family: inherit; font-size: 14px; color: var(--te
 
 .sidebar-footer {
   margin-top: auto;
-  display: flex; gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+
+.cloud-status {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 2px 0;
 }
 
 /* Main */
